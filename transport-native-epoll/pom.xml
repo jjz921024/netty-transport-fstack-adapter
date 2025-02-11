@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Copyright 2014 The Netty Project
+  ~
+  ~ The Netty Project licenses this file to you under the Apache License,
+  ~ version 2.0 (the "License"); you may not use this file except in compliance
+  ~ with the License. You may obtain a copy of the License at:
+  ~
+  ~   https://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+  ~ WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+  ~ License for the specific language governing permissions and limitations
+  ~ under the License.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>io.netty</groupId>
+    <artifactId>netty-parent</artifactId>
+    <version>4.1.115.Final</version>
+  </parent>
+  <artifactId>netty-transport-native-epoll</artifactId>
+
+  <name>Netty/Transport/Native/Epoll</name>
+  <packaging>jar</packaging>
+  <version>4.1.115-fstack.Final</version>
+
+  <properties>
+    <javaModuleNameClassifier>${os.detected.name}.${os.detected.arch}</javaModuleNameClassifier>
+    <javaModuleName>io.netty.transport.epoll.${javaModuleNameClassifier}</javaModuleName>
+    <!-- Needed as we use SelfSignedCertificate in our tests -->
+    <argLine.java9.extras>--add-exports java.base/sun.security.x509=ALL-UNNAMED</argLine.java9.extras>
+    <!-- Always check JNI during test run so we catch bugs that could cause crashes -->
+    <argLine.jni>-Xcheck:jni</argLine.jni>
+    <!-- 链接fstack和dpdk需要的库名称 -->
+    <dpdkLibs>-lfstack -lrte_common_cpt -lrte_common_dpaax -lrte_common_iavf -lrte_common_idpf -lrte_common_octeontx -lrte_bus_auxiliary -lrte_bus_dpaa -lrte_bus_fslmc -lrte_bus_ifpga -lrte_bus_pci -lrte_bus_vdev -lrte_bus_vmbus -lrte_common_cnxk -lrte_common_qat -lrte_common_sfc_efx -lrte_mempool_bucket -lrte_mempool_cnxk -lrte_mempool_dpaa -lrte_mempool_dpaa2 -lrte_mempool_octeontx -lrte_mempool_ring -lrte_mempool_stack -lrte_dma_cnxk -lrte_dma_dpaa -lrte_dma_dpaa2 -lrte_dma_hisilicon -lrte_dma_idxd -lrte_dma_ioat -lrte_dma_skeleton -lrte_net_af_packet -lrte_net_ark -lrte_net_atlantic -lrte_net_avp -lrte_net_axgbe -lrte_net_bnx2x -lrte_net_bnxt -lrte_net_bond -lrte_net_cnxk -lrte_net_cxgbe -lrte_net_dpaa -lrte_net_dpaa2 -lrte_net_e1000 -lrte_net_ena -lrte_net_enetc -lrte_net_enetfec -lrte_net_enic -lrte_net_failsafe -lrte_net_fm10k -lrte_net_gve -lrte_net_hinic -lrte_net_hns3 -lrte_net_i40e -lrte_net_iavf -lrte_net_ice -lrte_net_idpf -lrte_net_igc -lrte_net_ionic -lrte_net_ixgbe -lrte_net_kni -lrte_net_liquidio -lrte_net_memif -lrte_net_netvsc -lrte_net_nfp -lrte_net_ngbe -lrte_net_null -lrte_net_octeontx -lrte_net_octeon_ep -lrte_net_pfe -lrte_net_qede -lrte_net_ring -lrte_net_sfc -lrte_net_softnic -lrte_net_tap -lrte_net_thunderx -lrte_net_txgbe -lrte_net_vdev_netvsc -lrte_net_vhost -lrte_net_virtio -lrte_net_vmxnet3 -lrte_raw_cnxk_bphy -lrte_raw_cnxk_gpio -lrte_raw_dpaa2_cmdif -lrte_raw_ntb -lrte_raw_skeleton -lrte_crypto_bcmfs -lrte_crypto_caam_jr -lrte_crypto_ccp -lrte_crypto_cnxk -lrte_crypto_dpaa_sec -lrte_crypto_dpaa2_sec -lrte_crypto_nitrox -lrte_crypto_null -lrte_crypto_octeontx -lrte_crypto_openssl -lrte_crypto_scheduler -lrte_crypto_virtio -lrte_compress_octeontx -lrte_compress_zlib -lrte_regex_cn9k -lrte_vdpa_ifc -lrte_vdpa_sfc -lrte_event_cnxk -lrte_event_dlb2 -lrte_event_dpaa -lrte_event_dpaa2 -lrte_event_dsw -lrte_event_opdl -lrte_event_skeleton -lrte_event_sw -lrte_event_octeontx -lrte_baseband_acc -lrte_baseband_fpga_5gnr_fec -lrte_baseband_fpga_lte_fec -lrte_baseband_la12xx -lrte_baseband_null -lrte_baseband_turbo_sw -lrte_node -lrte_graph -lrte_pipeline -lrte_table -lrte_pdump -lrte_port -lrte_fib -lrte_ipsec -lrte_vhost -lrte_stack -lrte_security -lrte_sched -lrte_reorder -lrte_rib -lrte_dmadev -lrte_regexdev -lrte_rawdev -lrte_power -lrte_pcapng -lrte_member -lrte_lpm -lrte_latencystats -lrte_kni -lrte_jobstats -lrte_ip_frag -lrte_gso -lrte_gro -lrte_gpudev -lrte_eventdev -lrte_efd -lrte_distributor -lrte_cryptodev -lrte_compressdev -lrte_cfgfile -lrte_bpf -lrte_bitratestats -lrte_bbdev -lrte_acl -lrte_timer -lrte_hash -lrte_metrics -lrte_cmdline -lrte_pci -lrte_ethdev -lrte_meter -lrte_net -lrte_mbuf -lrte_mempool -lrte_rcu -lrte_ring -lrte_eal -lrte_telemetry -lrte_kvargs</dpdkLibs>
+    <dpdkArchiveLibs>-l:libfstack.a -l:librte_common_cpt.a -l:librte_common_dpaax.a -l:librte_common_iavf.a -l:librte_common_idpf.a -l:librte_common_octeontx.a -l:librte_bus_auxiliary.a -l:librte_bus_dpaa.a -l:librte_bus_fslmc.a -l:librte_bus_ifpga.a -l:librte_bus_pci.a -l:librte_bus_vdev.a -l:librte_bus_vmbus.a -l:librte_common_cnxk.a -l:librte_common_mlx5.a -l:librte_common_qat.a -l:librte_common_sfc_efx.a -l:librte_mempool_bucket.a -l:librte_mempool_cnxk.a -l:librte_mempool_dpaa.a -l:librte_mempool_dpaa2.a -l:librte_mempool_octeontx.a -l:librte_mempool_ring.a -l:librte_mempool_stack.a -l:librte_dma_cnxk.a -l:librte_dma_dpaa.a -l:librte_dma_dpaa2.a -l:librte_dma_hisilicon.a -l:librte_dma_idxd.a -l:librte_dma_ioat.a -l:librte_dma_skeleton.a -l:librte_net_af_packet.a -l:librte_net_ark.a -l:librte_net_atlantic.a -l:librte_net_avp.a -l:librte_net_axgbe.a -l:librte_net_bnx2x.a -l:librte_net_bnxt.a -l:librte_net_bond.a -l:librte_net_cnxk.a -l:librte_net_cxgbe.a -l:librte_net_dpaa.a -l:librte_net_dpaa2.a -l:librte_net_e1000.a -l:librte_net_ena.a -l:librte_net_enetc.a -l:librte_net_enetfec.a -l:librte_net_enic.a -l:librte_net_failsafe.a -l:librte_net_fm10k.a -l:librte_net_gve.a -l:librte_net_hinic.a -l:librte_net_hns3.a -l:librte_net_i40e.a -l:librte_net_iavf.a -l:librte_net_ice.a -l:librte_net_idpf.a -l:librte_net_igc.a -l:librte_net_ionic.a -l:librte_net_ixgbe.a -l:librte_net_kni.a -l:librte_net_liquidio.a -l:librte_net_mana.a -l:librte_net_memif.a -l:librte_net_mlx4.a -l:librte_net_mlx5.a -l:librte_net_netvsc.a -l:librte_net_nfp.a -l:librte_net_ngbe.a -l:librte_net_null.a -l:librte_net_octeontx.a -l:librte_net_octeon_ep.a -l:librte_net_pcap.a -l:librte_net_pfe.a -l:librte_net_qede.a -l:librte_net_ring.a -l:librte_net_sfc.a -l:librte_net_softnic.a -l:librte_net_tap.a -l:librte_net_thunderx.a -l:librte_net_txgbe.a -l:librte_net_vdev_netvsc.a -l:librte_net_vhost.a -l:librte_net_virtio.a -l:librte_net_vmxnet3.a -l:librte_raw_cnxk_bphy.a -l:librte_raw_cnxk_gpio.a -l:librte_raw_dpaa2_cmdif.a -l:librte_raw_ntb.a -l:librte_raw_skeleton.a -l:librte_crypto_bcmfs.a -l:librte_crypto_caam_jr.a -l:librte_crypto_ccp.a -l:librte_crypto_cnxk.a -l:librte_crypto_dpaa_sec.a -l:librte_crypto_dpaa2_sec.a -l:librte_crypto_mlx5.a -l:librte_crypto_nitrox.a -l:librte_crypto_null.a -l:librte_crypto_octeontx.a -l:librte_crypto_openssl.a -l:librte_crypto_scheduler.a -l:librte_crypto_virtio.a -l:librte_compress_mlx5.a -l:librte_compress_octeontx.a -l:librte_compress_zlib.a -l:librte_regex_mlx5.a -l:librte_regex_cn9k.a -l:librte_vdpa_ifc.a -l:librte_vdpa_mlx5.a -l:librte_vdpa_sfc.a -l:librte_event_cnxk.a -l:librte_event_dlb2.a -l:librte_event_dpaa.a -l:librte_event_dpaa2.a -l:librte_event_dsw.a -l:librte_event_opdl.a -l:librte_event_skeleton.a -l:librte_event_sw.a -l:librte_event_octeontx.a -l:librte_baseband_acc.a -l:librte_baseband_fpga_5gnr_fec.a -l:librte_baseband_fpga_lte_fec.a -l:librte_baseband_la12xx.a -l:librte_baseband_null.a -l:librte_baseband_turbo_sw.a -l:librte_node.a -l:librte_graph.a -l:librte_pipeline.a -l:librte_table.a -l:librte_pdump.a -l:librte_port.a -l:librte_fib.a -l:librte_ipsec.a -l:librte_vhost.a -l:librte_stack.a -l:librte_security.a -l:librte_sched.a -l:librte_reorder.a -l:librte_rib.a -l:librte_dmadev.a -l:librte_regexdev.a -l:librte_rawdev.a -l:librte_power.a -l:librte_pcapng.a -l:librte_member.a -l:librte_lpm.a -l:librte_latencystats.a -l:librte_kni.a -l:librte_jobstats.a -l:librte_ip_frag.a -l:librte_gso.a -l:librte_gro.a -l:librte_gpudev.a -l:librte_eventdev.a -l:librte_efd.a -l:librte_distributor.a -l:librte_cryptodev.a -l:librte_compressdev.a -l:librte_cfgfile.a -l:librte_bpf.a -l:librte_bitratestats.a -l:librte_bbdev.a -l:librte_acl.a -l:librte_timer.a -l:librte_hash.a -l:librte_metrics.a -l:librte_cmdline.a -l:librte_pci.a -l:librte_ethdev.a -l:librte_meter.a -l:librte_net.a -l:librte_mbuf.a -l:librte_mempool.a -l:librte_rcu.a -l:librte_ring.a -l:librte_eal.a -l:librte_telemetry.a -l:librte_kvargs.a</dpdkArchiveLibs>
+    <unix.common.lib.name>netty-unix-common</unix.common.lib.name>
+    <unix.common.lib.dir>${project.build.directory}/unix-common-lib</unix.common.lib.dir>
+    <unix.common.lib.unpacked.dir>${unix.common.lib.dir}/META-INF/native/lib</unix.common.lib.unpacked.dir>
+    <unix.common.include.unpacked.dir>${unix.common.lib.dir}/META-INF/native/include</unix.common.include.unpacked.dir>
+    <jni.compiler.args.cflags>CFLAGS=-O2 -pipe -Werror -fno-omit-frame-pointer -Wunused-variable -fvisibility=hidden -D_FORTIFY_SOURCE=2 -ffunction-sections -fdata-sections -I${unix.common.include.unpacked.dir} -I${dpdkHeaderDir} -I${fstackInstallDir}</jni.compiler.args.cflags>
+    <jni.compiler.args.ldflags>LDFLAGS=-Wl,-z,relro -Wl,-z,now -Wl,--as-needed -Wl,--gc-sections -L${unix.common.lib.unpacked.dir} -L${fstackInstallDir} -L${dpdkLibaryDir}</jni.compiler.args.ldflags>
+    <jni.compiler.args.libs>LIBS=-Wl,--whole-archive -l${unix.common.lib.name} -Wl,--no-whole-archive -ldl -lrt -lm -lz -lcrypto -lpthread -lnuma -ljansson -lpcap -lelf ${dpdkLibs} -Wl,--no-whole-archive -Wl,--export-dynamic -latomic</jni.compiler.args.libs>
+    <jni.compiler.args.archivelibs>LIBS=-Wl,--whole-archive -l${unix.common.lib.name} ${dpdkArchiveLibs} -Wl,--no-whole-archive -Wl,--export-dynamic -latomic -Wl,--as-needed ${dpdkLibs} -lm -ldl -lpthread -lnuma</jni.compiler.args.archivelibs>
+    <nativeSourceDirectory>${project.basedir}/src/main/c</nativeSourceDirectory>
+    <skipTests>true</skipTests>
+    <japicmp.skip>true</japicmp.skip>
+  </properties>
+
+  <profiles>
+    <!--
+      Netty must be released from RHEL 6.8 x86_64 or compatible so that:
+
+        1) we ship x86_64 version of epoll transport officially, and
+        2) we ensure the ABI compatibility with older GLIBC versions.
+
+           The shared library built on a distribution with newer GLIBC
+           will not run on older distributions.
+    -->
+    <profile>
+      <id>linux</id>
+      <!-- 在linux上自动激活 -->
+      <activation>
+        <os>
+          <family>linux</family>
+        </os>
+      </activation>
+      <properties>
+        <skipTests>true</skipTests>
+      </properties>
+
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <!-- unpack the unix-common static library and include files -->
+              <execution>
+                <id>unpack</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>unpack-dependencies</goal>
+                </goals>
+                <configuration>
+                  <includeGroupIds>${project.groupId}</includeGroupIds>
+                  <includeArtifactIds>netty-transport-native-unix-common</includeArtifactIds>
+                  <classifier>${jni.classifier}</classifier>
+                  <outputDirectory>${unix.common.lib.dir}</outputDirectory>
+                  <includes>META-INF/native/**</includes>
+                  <overWriteReleases>false</overWriteReleases>
+                  <overWriteSnapshots>true</overWriteSnapshots>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.fusesource.hawtjni</groupId>
+            <artifactId>hawtjni-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-native-lib</id>
+                <configuration>
+                  <name>netty_transport_native_epoll_${os.detected.arch}</name>
+                  <nativeSourceDirectory>${nativeSourceDirectory}</nativeSourceDirectory>
+                  <libDirectory>${project.build.outputDirectory}</libDirectory>
+                  <!-- We use Maven's artifact classifier instead.
+                       This hack will make the hawtjni plugin to put the native library
+                       under 'META-INF/native' rather than 'META-INF/native/${platform}'. -->
+                  <platform>.</platform>
+                  <configureArgs>
+                    <arg>${jni.compiler.args.ldflags}</arg>
+                    <arg>${jni.compiler.args.libs}</arg>
+                    <arg>${jni.compiler.args.cflags}</arg>
+                    <configureArg>--libdir=${project.build.directory}/native-build/target/lib</configureArg>
+                  </configureArgs>
+                </configuration>
+                <goals>
+                  <goal>generate</goal>
+                  <goal>build</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-jar-plugin</artifactId>
+            <executions>
+              <!-- Generate the JAR that contains the native library in it. -->
+              <execution>
+                <id>native-jar</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <archive>
+                    <manifest>
+                      <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                      <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                    </manifest>
+                    <manifestEntries>
+                      <Bundle-NativeCode>META-INF/native/libnetty_transport_native_epoll_${os.detected.arch}.so; osname=Linux; processor=${os.detected.arch},*</Bundle-NativeCode>
+                      <Fragment-Host>io.netty.transport-classes-epoll</Fragment-Host>
+                      <Automatic-Module-Name>${javaModuleName}</Automatic-Module-Name>
+                    </manifestEntries>
+                    <index>true</index>
+                    <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                  </archive>
+                  <classifier>${jni.classifier}</classifier>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+
+      <dependencies>
+        <dependency>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-transport-native-unix-common</artifactId>
+          <version>${project.parent.version}</version>
+          <classifier>${jni.classifier}</classifier>
+          <!--
+            The unix-common with classifier dependency is optional because it is not a runtime dependency, but a build time
+            dependency to get the static library which is built directly into the shared library generated by this project.
+          -->
+          <optional>true</optional>
+        </dependency>
+      </dependencies>
+    </profile>
+    <!-- 静态链接的profile -->
+    <profile>
+      <id>linux-archive</id>
+      <properties>
+        <skipTests>true</skipTests>
+      </properties>
+
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <!-- unpack the unix-common static library and include files -->
+              <execution>
+                <id>unpack</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>unpack-dependencies</goal>
+                </goals>
+                <configuration>
+                  <includeGroupIds>${project.groupId}</includeGroupIds>
+                  <includeArtifactIds>netty-transport-native-unix-common</includeArtifactIds>
+                  <classifier>${jni.classifier}</classifier>
+                  <outputDirectory>${unix.common.lib.dir}</outputDirectory>
+                  <includes>META-INF/native/**</includes>
+                  <overWriteReleases>false</overWriteReleases>
+                  <overWriteSnapshots>true</overWriteSnapshots>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.fusesource.hawtjni</groupId>
+            <artifactId>hawtjni-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>build-native-lib</id>
+                <configuration>
+                  <name>netty_transport_native_epoll_${os.detected.arch}</name>
+                  <nativeSourceDirectory>${nativeSourceDirectory}</nativeSourceDirectory>
+                  <libDirectory>${project.build.outputDirectory}</libDirectory>
+                  <!-- We use Maven's artifact classifier instead.
+                       This hack will make the hawtjni plugin to put the native library
+                       under 'META-INF/native' rather than 'META-INF/native/${platform}'. -->
+                  <platform>.</platform>
+                  <configureArgs>
+                    <arg>${jni.compiler.args.ldflags}</arg>
+                    <arg>${jni.compiler.args.archivelibs}</arg>
+                    <arg>${jni.compiler.args.cflags}</arg>
+                    <configureArg>--libdir=${project.build.directory}/native-build/target/lib</configureArg>
+                  </configureArgs>
+                </configuration>
+                <goals>
+                  <goal>generate</goal>
+                  <goal>build</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-jar-plugin</artifactId>
+            <executions>
+              <!-- Generate the JAR that contains the native library in it. -->
+              <execution>
+                <id>native-jar</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <archive>
+                    <manifest>
+                      <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                      <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                    </manifest>
+                    <manifestEntries>
+                      <Bundle-NativeCode>META-INF/native/libnetty_transport_native_epoll_${os.detected.arch}.so; osname=Linux; processor=${os.detected.arch},*</Bundle-NativeCode>
+                      <Fragment-Host>io.netty.transport-classes-epoll</Fragment-Host>
+                      <Automatic-Module-Name>${javaModuleName}</Automatic-Module-Name>
+                    </manifestEntries>
+                    <index>true</index>
+                    <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                  </archive>
+                  <classifier>${jni.classifier}</classifier>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+
+      <dependencies>
+        <dependency>
+          <groupId>io.netty</groupId>
+          <artifactId>netty-transport-native-unix-common</artifactId>
+          <version>${project.parent.version}</version>
+          <classifier>${jni.classifier}</classifier>
+          <optional>true</optional>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-common</artifactId>
+      <version>${project.parent.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-buffer</artifactId>
+      <version>${project.parent.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport</artifactId>
+      <version>${project.parent.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-unix-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-testsuite</artifactId>
+      <version>${project.parent.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-unix-common-tests</artifactId>
+      <version>${project.parent.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>${tcnative.artifactId}</artifactId>
+      <classifier>${tcnative.classifier}</classifier>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.github.artsok</groupId>
+      <artifactId>rerunner-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- For SelfSignedCertificate usage on JDK20+ -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk15on</artifactId>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+
+
+  <build>
+    <plugins>
+      <!-- Also include c files in source jar -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${nativeSourceDirectory}</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <!-- We must generate a -javadoc JAR file to publish on Maven Central -->
+          <execution>
+            <id>empty-javadoc-jar</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <classifier>javadoc</classifier>
+              <classesDirectory>${basedir}/javadoc</classesDirectory>
+            </configuration>
+          </execution>
+          <!-- Generate the fallback JAR that does not contain the native library. -->
+          <execution>
+            <id>default-jar</id>
+            <configuration>
+              <excludes>
+                <exclude>META-INF/native/**</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+
