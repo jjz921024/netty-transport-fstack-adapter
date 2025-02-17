@@ -56,18 +56,12 @@ static inline int netty_epoll_wait(JNIEnv* env, jint efd, struct epoll_event *ev
         // timeout大于0时
         struct timespec ts;
         long deadline, now;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-            return -1;
-        }
-        // 计算超时时间
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return -1;
+        // 计算deadline
         deadline = ts.tv_sec * 1000 + ts.tv_nsec / 1000 + timeout;
         while ((rc = ff_epoll_wait(efd, ev, len, timeout)) < 0) {
-            if (errno != EINTR) {
-                return -errno;
-            }
-            if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-                return -1;
-            }
+            if (errno != EINTR) return -errno;
+            if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return -1;
             now = ts.tv_sec * 1000 + ts.tv_nsec / 1000;
             if (now >= deadline) {
                 return 0;
@@ -95,7 +89,7 @@ int loop(void *arg) {
 
         // 处理已就绪的事件
         jobject events = (*env)->GetObjectField(env, ctx->event_loop, eventsFieldId);
-        (*env)->CallVoidMethod(env, ctx->event_loop, processReadyMethodId, events, strategy);
+        (*env)->CallBooleanMethod(env, ctx->event_loop, processReadyMethodId, events, strategy);
 
         if (clock_gettime(CLOCK_MONOTONIC, &ioEndTime) == -1) return -1;
 
@@ -170,7 +164,7 @@ JNIEXPORT jint netty_epoll_fstack_JNI_OnLoad(JNIEnv* env) {
     }
 
     processReadyMethodId = (*env)->GetMethodID(env, epollEventLoopClass, "processReady",
-                                   "(Lio/netty/channel/epoll/EpollEventArray;I)V");
+                                   "(Lio/netty/channel/epoll/EpollEventArray;I)Z");
     if (processReadyMethodId == NULL) {
         printf("cannot get method processReady\n");
         return -1;

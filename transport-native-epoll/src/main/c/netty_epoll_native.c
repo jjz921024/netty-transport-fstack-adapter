@@ -324,6 +324,42 @@ static inline int timespec_after(const struct timespec *t1, const struct timespe
 // This needs to be consistent with Native.java
 #define EPOLL_WAIT_RESULT(V, ARM_TIMER)  ((jlong) ((uint64_t) ((uint32_t) V) << 32 | ARM_TIMER))
 
+static jlong netty_epoll_native_epollWait0(JNIEnv* env, jclass clazz, jint efd, jlong address, jint len, jint timerFd, jint tvSec, jint tvNsec, jlong millisThreshold)
+{
+    struct epoll_event *ev = (struct epoll_event *)(intptr_t) address;
+    int result;
+    // only reschedule the timer if there is a newer event.
+    // -1 is a special value used by EpollEventLoop.
+    uint32_t armTimer = millisThreshold <= 0 ? 1 : 0;
+    if (tvSec != ((jint) -1) && tvNsec != ((jint) -1)) {
+        if (millisThreshold > 0 && (tvSec != 0 || tvNsec != 0)) {
+            int millis = tvNsec / 1000000;
+            // Check if we can reduce the syscall overhead by just use epoll_wait. This is done in cases when we can
+            // tolerate some "drift".
+            if (tvNsec == 0 ||
+                    // Let's use the threshold to accept that we may be not 100 % accurate and ignore anything that
+                    // is smaller then 1 ms.
+                    millis >= millisThreshold ||
+                    tvSec > 0) {
+                millis += tvSec * 1000;
+                result = netty_epoll_wait(env, efd, ev, len, millis);
+                return EPOLL_WAIT_RESULT(result, armTimer);
+            }
+        }
+        struct itimerspec ts;
+        memset(&ts.it_interval, 0, sizeof(struct timespec));
+        ts.it_value.tv_sec = tvSec;
+        ts.it_value.tv_nsec = tvNsec;
+        if (timerfd_settime(timerFd, 0, &ts, NULL) < 0) {
+            netty_unix_errors_throwChannelExceptionErrorNo(env, "timerfd_settime() failed: ", errno);
+            return -1;
+        }
+        armTimer = 1;
+    }
+    result = netty_epoll_wait(env, efd, ev, len, -1);
+    return EPOLL_WAIT_RESULT(result, armTimer);
+}
+
 static inline void cpu_relax() {
 #if defined(__x86_64__)
     asm volatile("pause\n": : :"memory");
@@ -703,6 +739,7 @@ static const JNINativeMethod fixed_method_table[] = {
   { "eventFdWrite", "(IJ)V", (void *) netty_epoll_native_eventFdWrite },
   { "eventFdRead", "(I)V", (void *) netty_epoll_native_eventFdRead },
   { "epollCreate", "()I", (void *) netty_epoll_native_epollCreate },
+  { "epollWait0", "(IJIIIIJ)J", (void *) netty_epoll_native_epollWait0 },
   { "epollWait", "(IJII)I", (void *) netty_epoll_native_epollWait },
   { "epollBusyWait0", "(IJI)I", (void *) netty_epoll_native_epollBusyWait0 },
   { "epollCtlAdd0", "(III)I", (void *) netty_epoll_native_epollCtlAdd0 },

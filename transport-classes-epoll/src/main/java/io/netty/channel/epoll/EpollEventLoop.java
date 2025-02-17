@@ -28,6 +28,7 @@ import io.netty.util.IntSupplier;
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
 import io.netty.util.concurrent.RejectedExecutionHandler;
+import io.netty.util.concurrent.RejectedExecutionHandlers;
 import io.netty.util.internal.ObjectUtil;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.SystemPropertyUtil;
@@ -58,6 +59,8 @@ public class EpollEventLoop extends SingleThreadEventLoop {
     }
 
     private FileDescriptor epollFd;
+    private FileDescriptor eventFd;
+    private FileDescriptor timerFd;
     private final IntObjectMap<AbstractEpollChannel> channels = new IntObjectHashMap<AbstractEpollChannel>(4096);
     private final boolean allowGrowing;
     private final EpollEventArray events;
@@ -66,7 +69,7 @@ public class EpollEventLoop extends SingleThreadEventLoop {
     private IovArray iovArray;
     private NativeDatagramPacketArray datagramPacketArray;
 
-    private final SelectStrategy selectStrategy;
+    private SelectStrategy selectStrategy;
     private final IntSupplier selectNowSupplier = new IntSupplier() {
         @Override
         public int get() throws Exception {
@@ -111,13 +114,10 @@ public class EpollEventLoop extends SingleThreadEventLoop {
         openFileDescriptors();
     }
 
-    EpollEventLoop(EventLoopGroup parent, Executor executor, SelectStrategy strategy,
-                   RejectedExecutionHandler rejectedExecutionHandler, EventLoopTaskQueueFactory taskQueueFactory,
-                   EventLoopTaskQueueFactory tailTaskQueueFactory,
+    EpollEventLoop(EventLoopGroup parent, Executor executor,
                    String confPath, int procId, String procType) {
-        super(parent, executor, false, newTaskQueue(taskQueueFactory), newTaskQueue(tailTaskQueueFactory),
-                rejectedExecutionHandler);
-        selectStrategy = ObjectUtil.checkNotNull(strategy, "strategy");
+        super(parent, executor, false, newTaskQueue0(DEFAULT_MAX_PENDING_TASKS),
+            newTaskQueue0(DEFAULT_MAX_PENDING_TASKS), RejectedExecutionHandlers.reject());
         events = new EpollEventArray(4096);
         allowGrowing = false;
         takeOver = true;
@@ -133,12 +133,38 @@ public class EpollEventLoop extends SingleThreadEventLoop {
     @UnstableApi
     public void openFileDescriptors() {
         boolean success = false;
+        FileDescriptor epollFd = null;
+        FileDescriptor eventFd = null;
+        FileDescriptor timerFd = null;
         try {
-            epollFd = Native.newEpollCreate();
+            this.epollFd = epollFd = Native.newEpollCreate();
+            if (takeOver) {
+                success = true;
+                return;
+            }
+            this.eventFd = eventFd = Native.newEventFd();
+            this.timerFd = timerFd = Native.newTimerFd();
+            try {
+                // It is important to use EPOLLET here as we only want to get the notification once per
+                // wakeup and don't call eventfd_read(...).
+                Native.epollCtlAdd(epollFd.intValue(), eventFd.intValue(), Native.EPOLLIN | Native.EPOLLET);
+            } catch (IOException e) {
+                throw new IllegalStateException("Unable to add eventFd filedescriptor to epoll", e);
+            }
+
+            try {
+                // It is important to use EPOLLET here as we only want to get the notification once per
+                // wakeup and don't call read(...).
+                Native.epollCtlAdd(epollFd.intValue(), timerFd.intValue(), Native.EPOLLIN | Native.EPOLLET);
+            } catch (IOException e) {
+                throw new IllegalStateException("Unable to add timerFd filedescriptor to epoll", e);
+            }
             success = true;
         } finally {
             if (!success) {
                 closeFileDescriptor(epollFd);
+                closeFileDescriptor(eventFd);
+                closeFileDescriptor(timerFd);
             }
         }
     }
@@ -185,12 +211,16 @@ public class EpollEventLoop extends SingleThreadEventLoop {
         return datagramPacketArray;
     }
 
-    /*@Override
+    @Override
     protected void wakeup(boolean inEventLoop) {
-        if (!inEventLoop && nextWakeupNanos.getAndSet(AWAKE) != AWAKE) {
-            Native.keventTriggerUserEvent(epollFd.intValue(), 0);
+        if (takeOver) {
+            return;
         }
-    }*/
+        if (!inEventLoop && nextWakeupNanos.getAndSet(AWAKE) != AWAKE) {
+            // write to the evfd which will then wake-up epoll_wait(...)
+            Native.eventFdWrite(eventFd.intValue(), 1L);
+        }
+    }
 
     @Override
     protected boolean beforeScheduledTaskSubmitted(long deadlineNanos) {
@@ -291,14 +321,15 @@ public class EpollEventLoop extends SingleThreadEventLoop {
         return new ChannelsReadOnlyIterator<AbstractEpollChannel>(ch.values());
     }
 
-    private int epollWait(long deadlineNanos) throws IOException {
+    private long epollWait(long deadlineNanos) throws IOException {
         if (deadlineNanos == NONE) {
-            return Native.epollWait(epollFd, events, false);
+            return Native.epollWait(epollFd, events, timerFd,
+                Integer.MAX_VALUE, 0, EPOLL_WAIT_MILLIS_THRESHOLD); // disarm timer
         }
         long totalDelay = deadlineToDelayNanos(deadlineNanos);
         int delaySeconds = (int) min(totalDelay / 1000000000L, Integer.MAX_VALUE);
         int delayNanos = (int) min(totalDelay - delaySeconds * 1000000000L, MAX_SCHEDULED_TIMERFD_NS);
-        return Native.epollWait(epollFd, events, delaySeconds, delayNanos, EPOLL_WAIT_MILLIS_THRESHOLD);
+        return Native.epollWait(epollFd, events, timerFd, delaySeconds, delayNanos, EPOLL_WAIT_MILLIS_THRESHOLD);
     }
 
     private int epollWaitNoTimerChange() throws IOException {
@@ -328,6 +359,7 @@ public class EpollEventLoop extends SingleThreadEventLoop {
     }
 
     private void linuxEpollRun() {
+        long prevDeadlineNanos = NONE;
         for (;;) {
             try {
                 int strategy = selectStrategy.calculateStrategy(selectNowSupplier, hasTasks());
@@ -364,7 +396,17 @@ public class EpollEventLoop extends SingleThreadEventLoop {
                         nextWakeupNanos.set(curDeadlineNanos);
                         try {
                             if (!hasTasks()) {
-                                strategy = epollWait(curDeadlineNanos);
+                                if (curDeadlineNanos == prevDeadlineNanos) {
+                                    // No timer activity needed
+                                    strategy = epollWaitNoTimerChange();
+                                } else {
+                                    // Timerfd needs to be re-armed or disarmed
+                                    long result = epollWait(curDeadlineNanos);
+                                    // The result contains the actual return value and if a timer was used or not.
+                                    // We need to "unpack" using the helper methods exposed in Native.
+                                    strategy = Native.epollReady(result);
+                                    prevDeadlineNanos = Native.epollTimerWasUsed(result) ? curDeadlineNanos : NONE;
+                                }
                             }
                         } finally {
                             // Try get() first to avoid much more expensive CAS in the case we
@@ -380,8 +422,8 @@ public class EpollEventLoop extends SingleThreadEventLoop {
                 final int ioRatio = this.ioRatio;
                 if (ioRatio == 100) {
                     try {
-                        if (strategy > 0) {
-                            processReady(events, strategy);
+                        if (strategy > 0 && processReady(events, strategy)) {
+                            prevDeadlineNanos = NONE;
                         }
                     } finally {
                         // Ensure we always run tasks.
@@ -390,7 +432,9 @@ public class EpollEventLoop extends SingleThreadEventLoop {
                 } else if (strategy > 0) {
                     final long ioStartTime = System.nanoTime();
                     try {
-                        processReady(events, strategy);
+                        if (processReady(events, strategy)) {
+                            prevDeadlineNanos = NONE;
+                        }
                     } finally {
                         // Ensure we always run tasks.
                         final long ioTime = System.nanoTime() - ioStartTime;
@@ -483,68 +527,73 @@ public class EpollEventLoop extends SingleThreadEventLoop {
     }
 
     // Returns true if a timerFd event was encountered
-    private void processReady(EpollEventArray events, int ready) {
+    private boolean processReady(EpollEventArray events, int ready) {
+        boolean timerFired = false;
         for (int i = 0; i < ready; i ++) {
             final int fd = events.fd(i);
-            AbstractEpollChannel ch = channels.get(fd);
-            if (ch != null) {
-                final long ev = events.events(i);
-
-                // Don't change the ordering of processing EPOLLOUT | EPOLLRDHUP / EPOLLIN if you're not 100%
-                // sure about it!
-                // Re-ordering can easily introduce bugs and bad side-effects, as we found out painfully in the
-                // past.
-                AbstractEpollUnsafe unsafe = (AbstractEpollUnsafe) ch.unsafe();
-
-                // First check for EPOLLOUT as we may need to fail the connect ChannelPromise before try
-                // to read from the file descriptor.
-                // See https://github.com/netty/netty/issues/3785
-                //
-                // It is possible for an EPOLLOUT or EPOLLERR to be generated when a connection is refused.
-                // In either case epollOutReady() will do the correct thing (finish connecting, or fail
-                // the connection).
-                // See https://github.com/netty/netty/issues/3848
-                if ((ev & (Native.EPOLLERR | Native.EPOLLOUT)) != 0) {
-                    // Force flush of data as the epoll is writable again
-                    unsafe.epollOutReady();
-                }
-
-                // Check EPOLLIN before EPOLLRDHUP to ensure all data is read before shutting down the input.
-                // See https://github.com/netty/netty/issues/4317.
-                //
-                // If EPOLLIN or EPOLLERR was received and the channel is still open call epollInReady(). This will
-                // try to read from the underlying file descriptor and so notify the user about the error.
-                if ((ev & (Native.EPOLLERR | Native.EPOLLIN)) != 0) {
-                    // The Channel is still open and there is something to read. Do it now.
-                    unsafe.epollInReady();
-                }
-
-                // Check if EPOLLRDHUP was set, this will notify us for connection-reset in which case
-                // we may close the channel directly or try to read more data depending on the state of the
-                // Channel and als depending on the AbstractEpollChannel subtype.
-                if ((ev & Native.EPOLLRDHUP) != 0) {
-                    unsafe.epollRdHupReady();
-                }
+            if (!takeOver && fd == eventFd.intValue()) {
+                pendingWakeup = false;
+            } else if (!takeOver && fd == timerFd.intValue()) {
+                timerFired = true;
             } else {
-                // We received an event for an fd which we not use anymore. Remove it from the epoll_event set.
-                try {
-                    Native.epollCtlDel(epollFd.intValue(), fd);
-                } catch (IOException ignore) {
-                    // This can happen but is nothing we need to worry about as we only try to delete
-                    // the fd from the epoll set as we not found it in our mappings. So this call to
-                    // epollCtlDel(...) is just to ensure we cleanup stuff and so may fail if it was
-                    // deleted before or the file descriptor was closed before.
+                final long ev = events.events(i);
+                AbstractEpollChannel ch = channels.get(fd);
+                if (ch != null) {
+                    // Don't change the ordering of processing EPOLLOUT | EPOLLRDHUP / EPOLLIN if you're not 100%
+                    // sure about it!
+                    // Re-ordering can easily introduce bugs and bad side-effects, as we found out painfully in the
+                    // past.
+                    AbstractEpollUnsafe unsafe = (AbstractEpollUnsafe) ch.unsafe();
+
+                    // First check for EPOLLOUT as we may need to fail the connect ChannelPromise before try
+                    // to read from the file descriptor.
+                    // See https://github.com/netty/netty/issues/3785
+                    //
+                    // It is possible for an EPOLLOUT or EPOLLERR to be generated when a connection is refused.
+                    // In either case epollOutReady() will do the correct thing (finish connecting, or fail
+                    // the connection).
+                    // See https://github.com/netty/netty/issues/3848
+                    if ((ev & (Native.EPOLLERR | Native.EPOLLOUT)) != 0) {
+                        // Force flush of data as the epoll is writable again
+                        unsafe.epollOutReady();
+                    }
+
+                    // Check EPOLLIN before EPOLLRDHUP to ensure all data is read before shutting down the input.
+                    // See https://github.com/netty/netty/issues/4317.
+                    //
+                    // If EPOLLIN or EPOLLERR was received and the channel is still open call epollInReady(). This will
+                    // try to read from the underlying file descriptor and so notify the user about the error.
+                    if ((ev & (Native.EPOLLERR | Native.EPOLLIN)) != 0) {
+                        // The Channel is still open and there is something to read. Do it now.
+                        unsafe.epollInReady();
+                    }
+
+                    // Check if EPOLLRDHUP was set, this will notify us for connection-reset in which case
+                    // we may close the channel directly or try to read more data depending on the state of the
+                    // Channel and als depending on the AbstractEpollChannel subtype.
+                    if ((ev & Native.EPOLLRDHUP) != 0) {
+                        unsafe.epollRdHupReady();
+                    }
+                } else {
+                    // We received an event for an fd which we not use anymore. Remove it from the epoll_event set.
+                    try {
+                        Native.epollCtlDel(epollFd.intValue(), fd);
+                    } catch (IOException ignore) {
+                        // This can happen but is nothing we need to worry about as we only try to delete
+                        // the fd from the epoll set as we not found it in our mappings. So this call to
+                        // epollCtlDel(...) is just to ensure we cleanup stuff and so may fail if it was
+                        // deleted before or the file descriptor was closed before.
+                    }
                 }
             }
         }
+        return timerFired;
     }
 
     @Override
     protected void cleanup() {
         try {
-            epollFd.close();
-        } catch (IOException e) {
-            logger.warn("Failed to close the epoll fd.", e);
+            closeFileDescriptors();
         } finally {
             // release native memory
             if (iovArray != null) {
@@ -556,6 +605,53 @@ public class EpollEventLoop extends SingleThreadEventLoop {
                 datagramPacketArray = null;
             }
             events.free();
+        }
+    }
+
+    /**
+     * This method is intended for use by process checkpoint/restore
+     * integration, such as OpenJDK CRaC.
+     * It's up to the caller to ensure that there is no concurrent use
+     * of the FDs while these are closed, e.g. by blocking the executor.
+     */
+    @UnstableApi
+    public void closeFileDescriptors() {
+        if (!takeOver) {
+            // Ensure any in-flight wakeup writes have been performed prior to closing eventFd.
+            while (pendingWakeup) {
+                try {
+                    int count = epollWaitTimeboxed();
+                    if (count == 0) {
+                        // We timed-out so assume that the write we're expecting isn't coming
+                        break;
+                    }
+                    for (int i = 0; i < count; i++) {
+                        if (events.fd(i) == eventFd.intValue()) {
+                            pendingWakeup = false;
+                            break;
+                        }
+                    }
+                } catch (IOException ignore) {
+                    // ignore
+                }
+            }
+
+            try {
+                eventFd.close();
+            } catch (IOException e) {
+                logger.warn("Failed to close the event fd.", e);
+            }
+            try {
+                timerFd.close();
+            } catch (IOException e) {
+                logger.warn("Failed to close the timer fd.", e);
+            }
+        }
+
+        try {
+            epollFd.close();
+        } catch (IOException e) {
+            logger.warn("Failed to close the epoll fd.", e);
         }
     }
 

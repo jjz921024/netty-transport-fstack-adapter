@@ -43,8 +43,6 @@ public class FstackEventLoopGroup extends MultithreadEventLoopGroup {
         int[] procIds = (int[]) args[2];
         int procId = procIds[index % procIds.length];
         EpollEventLoop eventLoop = new EpollEventLoop(this, executor,
-                DefaultSelectStrategyFactory.INSTANCE.newSelectStrategy(),
-                RejectedExecutionHandlers.reject(), null, null,
                 confPath, procId, (isPrimary && index == 0) ? "primary" : "secondary");
         index++;
         return eventLoop;
